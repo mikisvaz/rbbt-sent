@@ -1,0 +1,139 @@
+require 'sent'
+require 'sent/main'
+require 'rbbt/sources/organism'
+require 'progress-monitor'
+
+
+$list = ENV['list']
+$kstart = ENV['kstart'] || ENV['k']
+$kend = ENV['kend'] || $kstart
+
+rule (/summary\/(.*)/) => lambda {|n| n.sub(/summary/,'NMF') } do |t|
+  nmf = t.name.sub(/summary/,'NMF')
+
+  Sent.analyze(nmf, t.name)
+  FileUtils.touch t.name
+end
+
+rule (/NMF\/(.*)/) => lambda {|n| n.sub(/NMF/,'matrices') } do |t|
+  matrix = t.name.sub(/NMF/,'matrices')
+
+  k = $kstart
+  if $kstart < $kend
+    best = 0
+    ccc = Sent.CCC(matrix, $kstart, $kend)
+    ccc.each_with_index{|v,i|
+      if v.to_i > best
+        k = $kstart.to_i + i
+      end
+    }
+  end
+
+  Sent.NMF(matrix, t.name, k.to_i, 10)
+  FileUtils.touch t.name
+end
+
+rule (/matrices\/(.*)/) => lambda {|n| n.sub(/matrices/,'metadocs') } do |t|
+  metadocs = t.name.sub(/matrices/,'metadocs')
+  
+  list = nil
+  list = Open.read($list).collect{|l| l.chomp} if $list
+  
+  Sent.matrix(metadocs, t.name, list)
+end
+
+rule (/metadocs\/(.*)/) => lambda {|n| n.sub(/metadocs/,'associations') } do |t|
+  assocfile = t.name.sub(/metadocs/,'associations')
+
+  Sent.metadocs(assocfile, t.name)
+end
+
+rule(/associations\/(.*)_text/) do |t|
+  org = File.basename(t.name).sub(/_text/,'')
+
+  ner   = Organism.ner(org, :rner)
+  norm  = Organism.norm(org)
+  pmids = Organism.literature(org)
+
+  fout = File.open(t.name, 'w')
+  chunks = pmids.chunk(100)
+
+  Progress.monitor("Finding gene-article associations in text", 1000)
+  chunks.each{|chunk|
+    PubMed.get_article(chunk).each{|pmid, article|
+      text = article.text
+      
+      mentions = ner.extract(text)
+
+      Progress.monitor("Resolving mentions", 1000)
+      codes = mentions.collect{|mention| 
+        matches = norm.match(mention)
+        norm.select(matches,mention,text)
+      }.flatten.uniq.sort
+      
+      codes.each{|code|
+        fout.puts "#{ code }\t#{pmid}"
+      }
+
+    }
+  }
+  fout.close
+end
+
+rule (/associations\/(.*)/) => lambda{|n| n + '_text'} do |t|
+  org = File.basename(t.name)
+
+  fout = File.open(t.name, 'w')
+  fout.write Open.read(t.name + '_text')
+
+  associations = Organism.gene_literature(org)
+  associations.each{|gene, pmids|
+    pmids.each{|pmid|
+      fout.puts "#{ gene }\t#{pmid}"
+    }
+  }
+
+  associations = Organism.gene_literature_go(org)
+  associations.each{|gene, pmids|
+    pmids.each{|pmid|
+      fout.puts "#{ gene }\t#{pmid}"
+    }
+  }
+  fout.close
+
+  name = Organism.name(org)
+  supported_ids = Organism.supported_ids(org, :examples => true)
+  associations = Open.to_hash(t.name, :flatten => true)
+
+  description =<<-EOT
+Name: #{ name }
+Organism: #{ name }
+Description: #{associations.values.flatten.length} associations for #{associations.keys.length} genes and #{associations.values.flatten.uniq.length} articles
+ID Format: #{supported_ids.collect{|p| "#{ p[0] } (#{ p[1] })"}.join(", ")}
+  EOT
+
+  Open.write(t.name + '.description', description)
+end
+
+task 'clean' do
+  FileUtils.rm Dir.glob("associations/*")
+end
+
+task 'all' do
+  Organism.all.each{|org|
+    `rake metadocs/#{ org }`
+  }
+end
+
+task 'update' do
+  if $org
+    FileUtils.rm Dir.glob("**/#{$org}.*") if $force
+    Rake::Task["metadocs/#{$org}"].invoke
+  else
+    Rake::Task['clean'].invoke if $force
+    Rake::Task['all'].invoke
+  end
+end
+
+
+

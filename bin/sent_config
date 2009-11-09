@@ -1,0 +1,193 @@
+#!/usr/bin/ruby
+
+require 'simpleconsole'
+
+begin
+  require 'sent'
+rescue 
+  $noconfig = true
+end
+
+$USAGE =<<EOT
+#{__FILE__} <action> [<subaction>] [--force] [--organism <org>]
+  actions:
+    * configure:   Set paths for data, work, and tmp directories
+
+    * install:
+        * analysis: Install configuration to perform analysis
+    
+    * update:
+        * metadocs: Generate metadocs for all organisms
+    
+    * init:
+        * webservice: 
+        * www:
+
+
+
+EOT
+
+class Controller < SimpleConsole::Controller
+
+  params :bool => {:f => :force},
+    :string => {:o => :organism, :h => :host, :p => :port}
+
+  def init
+
+    @host = params[:host]
+    @port = params[:port]
+    render :action => params[:id]
+
+  end
+
+  def default
+    render :action => :usage
+  end
+
+  def help
+    render :action => :usage
+  end
+
+  def install
+    raise "Run #{__FILE__} configure first to configure sent" if $noconfig
+
+    case params[:id]
+    when "analysis"
+      @tasks = %w(analysis)
+    when nil
+      redirect_to :action => :help, :id => :install
+    else
+      @tasks = [params[:id]]
+    end
+
+    $force = true if params[:force]
+    $org = params[:organism] if params[:organism]
+
+  end
+
+  def update
+    raise "Run #{__FILE__} configure first to configure rbbt" if $noconfig
+
+    case params[:id]
+    when "metadocs"
+      @location = File.join(Sent.datadir,'analysis')
+    else
+      redirect_to :action => :help, :id => :update
+    end
+
+    $force = true if params[:force]
+    $org = params[:organism] if params[:organism]
+
+  end
+
+  def configure
+  end
+
+end
+
+class View < SimpleConsole::View
+  def usage
+    puts $USAGE
+  end
+
+  def install
+    require 'rake'
+    load File.join(Sent.rootdir, 'tasks/install.rake')
+
+    @tasks.each{|t|
+      puts "Invoking #{ t }"
+      Rake::Task[t].invoke
+    }
+  end
+
+  def update
+    require 'rake'
+
+    puts "Changing directory to #{@location}"
+    chdir @location
+
+    load "./Rakefile"
+
+    Rake::Task['update'].invoke
+  end
+
+
+  def configure
+
+    defaultdir = File.join(ENV['HOME'],'sent')
+
+    workdir   = File.join(defaultdir, 'work')
+    tmpdir   = File.join(defaultdir, 'tmp')
+    datadir   = File.join(defaultdir, 'data')
+
+    puts "Please indicate where you wish to place the data directories"
+    puts
+
+    puts
+    puts "* work Directory: This directory will hold downloads, from PubMed, 
+  Entrez and other, for local store. It might grow considerably."
+    print "[#{ workdir }]? "
+    input = STDIN.gets
+    workdir = input if input =~ /\w/
+
+      puts
+    puts "* Tmp Directory: Temporary files." 
+    print "[#{ tmpdir }]? "
+    input = STDIN.gets
+    tmpdir = input if input =~ /\w/
+
+    puts
+    puts "* Data Directory: Holds data from organisism, databases, third party software, etc."
+    print "[#{ datadir }]? "
+    input = STDIN.gets
+    datadir = input if input =~ /\w/
+
+
+
+    fout = File.open(File.join(ENV['HOME'], '.sent'),'w')
+    fout.puts "workdir: #{workdir}" 
+    fout.puts "tmpdir: #{tmpdir}" 
+    fout.puts "datadir: #{datadir}" 
+    fout.close
+
+  end
+
+  def webservice
+
+    FileUtils.cd File.join(Sent.rootdir, 'webservice/bin')
+    require 'sentWS'
+
+    host = @host || `hostname`.chomp.strip + '.' +  `hostname -d`.chomp.strip
+    port = @port || '8182'
+
+    puts "Starting Server in #{ host }:#{ port }"
+    server = SentWS.new("Sent", "Sent Web Server",host, port, Sent.workdir)
+
+    FileUtils.mkdir_p File.join(Sent.rootdir, '/webservice/wsdl/') unless File.exist? File.join(Sent.rootdir, '/webservice/wsdl/')
+    Open.write(File.join(Sent.rootdir, '/webservice/wsdl/SentWS.wsdl'), server.wsdl)
+
+    trap('INT') { server.abort_jobs; server.shutdown }
+    server.start
+
+  end
+
+  def www
+    FileUtils.cd File.join(Sent.rootdir, 'merb')
+
+    FileUtils.mkdir_p 'cache' unless File.exist? 'cache' 
+    FileUtils.mkdir_p 'public/tmp' unless File.exist? 'public/tmp' 
+
+    host = @host || `hostname`.chomp.strip + '.' +  `hostname -d`.chomp.strip
+    port = @port || '8181'
+
+    require 'merb-core'
+    Merb.start("-a mongrel -e production -p #{ port } -h #{ host }".split)
+
+
+  end
+
+end
+
+SimpleConsole::Application.run(ARGV, Controller, View)
+
+

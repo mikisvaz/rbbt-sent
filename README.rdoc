@@ -2,6 +2,11 @@
 
 Description goes here.
 
+===
+
+Install R som package
+Install ghostscript
+
 == Note on Patches/Pull Requests
  
 * Fork the project.

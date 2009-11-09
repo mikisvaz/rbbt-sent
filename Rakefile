@@ -6,11 +6,23 @@ begin
   Jeweler::Tasks.new do |gem|
     gem.name = "rbbt-sent"
     gem.summary = %Q{Semantic Features in Text}
-    gem.description = %Q{TODO: longer description of your gem}
+    gem.description = %Q{Use literature mining to find semantic features to describe clusers of genes}
     gem.email = "miguel.vazquez@fdi.ucm.es"
     gem.homepage = "http://github.com/mikisvaz/rbbt-sent"
     gem.authors = ["Miguel Vazquez"]
-    gem.add_development_dependency "thoughtbot-shoulda", ">= 0"
+  
+    gem.files = Dir['lib/**/*', 'test/*', 'bin/sent_config', 'install_scripts/*/*', 'tasks/*', 'R/*']
+
+    gem.add_dependency('rake')
+    gem.add_dependency('simpleconsole')
+    gem.add_dependency('rbbt')
+
+    gem.add_dependency('ferret')
+    gem.add_dependency('stemmer')
+    gem.add_dependency('progress-monitor')
+    gem.add_dependency('open4')
+
+
     # gem is a Gem::Specification... see http://www.rubygems.org/read/chapter/20 for additional settings
   end
 rescue LoadError
