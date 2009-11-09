@@ -5,11 +5,11 @@
 
 Gem::Specification.new do |s|
   s.name = %q{rbbt-sent}
-  s.version = "0.0.0"
+  s.version = "1.0.0"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Miguel Vazquez"]
-  s.date = %q{2009-11-04}
+  s.date = %q{2009-11-09}
   s.default_executable = %q{sent_config}
   s.description = %q{Use literature mining to find semantic features to describe clusers of genes}
   s.email = %q{miguel.vazquez@fdi.ucm.es}
@@ -19,7 +19,8 @@ Gem::Specification.new do |s|
      "README.rdoc"
   ]
   s.files = [
-    "bin/sent_config",
+    "R/matrix.R",
+     "bin/sent_config",
      "install_scripts/analysis/Rakefile",
      "lib/sent.rb",
      "lib/sent/main.rb",
