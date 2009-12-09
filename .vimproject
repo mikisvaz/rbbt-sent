@@ -1,4 +1,5 @@
 rbbt-sent=/$PWD filter="*.R *.rb *.sh *.txt *.rake Rakefile" {
+ README.rdoc
  Rakefile
  install_scripts=install_scripts{
   analysis=analysis{
@@ -12,8 +13,7 @@ rbbt-sent=/$PWD filter="*.R *.rb *.sh *.txt *.rake Rakefile" {
   helper.rb
  }
  bin=bin{
-  clean-jobs.sh
-  job-files.sh
+  sent_config
  }
  R=R{
   matrix.R
