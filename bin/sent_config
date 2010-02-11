@@ -13,10 +13,10 @@ $USAGE =<<EOT
   actions:
     * configure:   Set paths for data, work, and tmp directories
 
-    * install:
+    * prepare:
         * analysis: Install configuration to perform analysis
     
-    * update:
+    * install:
         * metadocs: Generate metadocs for all organisms
     
     * init:
@@ -48,14 +48,14 @@ class Controller < SimpleConsole::Controller
     render :action => :usage
   end
 
-  def install
+  def prepare
     raise "Run #{__FILE__} configure first to configure sent" if $noconfig
 
     case params[:id]
     when "analysis"
       @tasks = %w(analysis)
     when nil
-      redirect_to :action => :help, :id => :install
+      redirect_to :action => :help, :id => :prepare
     else
       @tasks = [params[:id]]
     end
@@ -65,14 +65,14 @@ class Controller < SimpleConsole::Controller
 
   end
 
-  def update
+  def install
     raise "Run #{__FILE__} configure first to configure rbbt" if $noconfig
 
     case params[:id]
     when "metadocs"
       @location = File.join(Sent.datadir,'analysis')
     else
-      redirect_to :action => :help, :id => :update
+      redirect_to :action => :help, :id => :install
     end
 
     $force = true if params[:force]
@@ -90,7 +90,7 @@ class View < SimpleConsole::View
     puts $USAGE
   end
 
-  def install
+  def prepare
     require 'rake'
     load File.join(Sent.rootdir, 'tasks/install.rake')
 
@@ -100,7 +100,7 @@ class View < SimpleConsole::View
     }
   end
 
-  def update
+  def install
     require 'rake'
 
     puts "Changing directory to #{@location}"
@@ -108,7 +108,7 @@ class View < SimpleConsole::View
 
     load "./Rakefile"
 
-    Rake::Task['update'].invoke
+    Rake::Task['default'].invoke
   end
 
 

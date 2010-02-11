@@ -15,7 +15,7 @@ rule (/summary\/(.*)/) => lambda {|n| n.sub(/summary/,'NMF') } do |t|
   FileUtils.touch t.name
 end
 
-rule (/NMF\/(.*)/) => lambda {|n| n.sub(/NMF/,'matrices') } do |t|
+rule (/NMF\/(.*)/) do |t|
   matrix = t.name.sub(/NMF/,'matrices')
 
   k = $kstart
@@ -51,33 +51,15 @@ end
 rule(/associations\/(.*)_text/) do |t|
   org = File.basename(t.name).sub(/_text/,'')
 
-  ner   = Organism.ner(org, :rner)
-  norm  = Organism.norm(org)
-  pmids = Organism.literature(org)
+  pmids = Sent.mentions(org)
 
-  fout = File.open(t.name, 'w')
-  chunks = pmids.chunk(100)
-
-  Progress.monitor("Finding gene-article associations in text", 1000)
-  chunks.each{|chunk|
-    PubMed.get_article(chunk).each{|pmid, article|
-      text = article.text
-      
-      mentions = ner.extract(text)
-
-      Progress.monitor("Resolving mentions", 1000)
-      codes = mentions.collect{|mention| 
-        matches = norm.match(mention)
-        norm.select(matches,mention,text)
-      }.flatten.uniq.sort
-      
-      codes.each{|code|
-        fout.puts "#{ code }\t#{pmid}"
-      }
-
-    }
-  }
-  fout.close
+  File.open(t.name, 'w') do |f|
+    pmids.each do |code, pmid_list|
+      pmid_list.uniq.each do |pmid|
+        f.puts "#{ code }\t#{pmid}"
+      end
+    end
+  end
 end
 
 rule (/associations\/(.*)/) => lambda{|n| n + '_text'} do |t|
@@ -125,7 +107,7 @@ task 'all' do
   }
 end
 
-task 'update' do
+task 'default' do
   if $org
     FileUtils.rm Dir.glob("**/#{$org}.*") if $force
     Rake::Task["metadocs/#{$org}"].invoke
