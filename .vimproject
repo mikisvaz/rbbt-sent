@@ -1,17 +1,6 @@
 rbbt-sent=/$PWD filter="*.R *.rb *.sh *.txt *.rake Rakefile" {
  README.rdoc
  Rakefile
- install_scripts=install_scripts{
-  analysis=analysis{
-   Rakefile
-  }
- }
- tasks=tasks {
-  install.rake
- }
- test=test {
-  helper.rb
- }
  bin=bin{
   sent_config
  }
@@ -23,5 +12,16 @@ rbbt-sent=/$PWD filter="*.R *.rb *.sh *.txt *.rake Rakefile" {
   sent=sent {
    main.rb
   }
+ }
+ install_scripts=install_scripts{
+  analysis=analysis{
+   Rakefile
+  }
+ }
+ tasks=tasks {
+  install.rake
+ }
+ test=test {
+  helper.rb
  }
 }

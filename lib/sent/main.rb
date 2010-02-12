@@ -1,3 +1,4 @@
+require 'sent'
 require 'rbbt/sources/pubmed'
 require 'rbbt/util/misc'
 require 'rbbt/util/open'
@@ -41,6 +42,16 @@ class String
   reset_stem_list
 end
 
+def try3times
+  try = 0
+  begin
+    yield
+  rescue
+    try += 1
+    retry if try <= 3
+  end
+end
+
 
 module Sent
 
@@ -55,7 +66,7 @@ module Sent
     stdin.close
 
     Process.wait pid
-    raise ProcessAborted, "Error in R process" if $?.exitstatus != 0
+    raise ProcessAbortedError, "Error in R process: #{stderr.read}" if $?.exitstatus != 0
     result = stdout.read + stderr.read
     stdout.close
     stderr.close
@@ -64,56 +75,83 @@ module Sent
     result
   end
 
-  def self.metadocs(assocfile, output, low=0.001, hi=0.65, max=3000)
-    
-    associations = Open.to_hash(assocfile, :flatten => true, :sep => "\t|,")
+  def self.mentions(org)
+    ner   = Organism.ner(org, :rner)
+    norm  = Organism.norm(org)
+    pmids = Organism.literature(org)
 
+    chunks = pmids.chunk(100)
+
+    pmids = {}
+    Progress.monitor("Finding gene-article associations in text", :step => 1000)
+    chunks.each{|chunk|
+      try3times do
+        PubMed.get_article(chunk).each{|pmid, article|
+          text = article.text
+
+          mentions = ner.extract(text)
+
+          Progress.monitor("Resolving mentions", :step => 1000)
+          codes = mentions.collect{|mention| 
+            matches = norm.match(mention)
+            norm.select(matches,mention,text)
+          }.flatten.uniq.sort
+
+          codes.each{|code|
+            pmids[code] ||= []
+            pmids[code] << pmid
+          }
+        }
+      end
+    }
+    pmids
+  end
+
+  def self.dictionary(associations, options = {})
+    dict_options = {:low => 0.001, :hi => 0.65, :limit => 3000}.merge options
     dict = Dictionary::TF_IDF.new
 
     String.reset_stem_list
 
-    Progress.monitor("Building Dictionary for #{File.basename(output)}", 1000) 
-    associations.each{|gene, pmids|
-      text = PubMed.get_article(pmids).collect{|p| p[1].text}.join("\n")
-      dict.add(BagOfWords.count(text.bigrams))
-    }
-
-    # At least 3 genes must have a word to be chosen
-    hard_min = 3 * 100 / associations.keys.length
-    hi = hard_min if hi < hard_min
-    
-    d =  dict.weights(:low => low, :hi => hi, :limit => max)
-    Open.write(output + '.dict', d.sort.collect{|p| p.join("\t")}.join("\n"))
-    terms = d.keys.sort
-
-    fout = File.open(output, 'w')
-    fout.puts("\t" + terms.join("\t"))
-
-    Progress.monitor("Building Metadoc for #{File.basename(output)}", 1000) 
-    associations.each{|gene, pmids|
-      text = PubMed.get_article(pmids).collect{|p| p[1].text}.join("\n")
-      fout.puts(([gene] + BagOfWords.features(text, terms)).join("\t"))
-    }
-    fout.close
-
-    Open.write(output + '.stems', String.stem_list(terms.collect{|p| p.split(/ /)}.flatten.uniq).collect{|k,v| "#{ k }\t#{v.join("\t")}"}.join("\n"))
-  end
-
-  def self.matrix(metadocs, output, list=nil)
-    list ||= []
-      
-    if list.empty?
-      FileUtils.cp metadocs, output
-    else
-      `head -n 1 #{ metadocs } > #{ output }`
-      `grep '^\\(#{list.join('\\|')}\\)[[:space:]]' #{ metadocs } >> #{output}`
-      raise Sent::NoGenesError, "No Genes Matched" if $? != 0
+    associations.each do |gene, pmids|
+      try3times do
+        text = PubMed.get_article(pmids).collect{|pmid, article| article.text }.join("\n")
+        dict.add(BagOfWords.count(text.bigrams))
+      end
     end
 
-    dict = metadocs + '.dict'
-    run_R("SENT.prepare.matrix('#{ output }', '#{ output }', '#{metadocs + '.dict'}')")
+    term_weigths = dict.weights(dict_options)
+    terms        = term_weigths.keys.sort
+
+    stems        = String.stem_list(terms.collect{|p| p.split(/ /) }.flatten.uniq)
+
+    [term_weigths, stems]
+  end
+ 
+
+  def self.metadoc(associations, terms)
+    "%s\t%s\n" % ["Entity", terms.sort * "\t"] +
+    associations.collect do |gene, pmids|
+      try3times do
+        text = PubMed.get_article(pmids).collect{|pmid, article| article.text }.join("\n")
+        "%s\t%s" % [gene, BagOfWords.features(text, terms.sort).join("\t")]
+      end
+    end * "\n"
   end
 
+  def self.matrix(metadoc_file, genes)
+
+    matrix = ""
+    File.open(metadoc_file) do |f|
+      matrix += f.gets
+      f.read.each_line do |line|
+        gene = line.match(/^(.*?)\t/)[1]
+        matrix += line if genes.include? gene
+      end
+    end
+
+    matrix
+  end
 
   @@bionmf_wsdl = "http://bionmf.dacya.ucm.es/WebService/BioNMFWS.wsdl"   
   def self.NMF(matrix, out, k, executions = 10)
@@ -121,14 +159,15 @@ module Sent
 
     # Upload matrix
     nmf_matrix = driver.upload_matrix(
-       File.open(matrix).read, # matrix
-       false, # binary 
-       true,  # column labels 
-       true,  # row labels
-       true,  # transpose
-       "No",  # positive
-       "No",  # normalization 
+       matrix,   # matrix
+       false,    # binary 
+       true,     # column labels 
+       true,     # row labels
+       true,     # transpose
+       "No",     # positive
+       "No",     # normalization 
        "matrix") # Suggested name
+
     # Send several executions in parallel
     while !driver.done(nmf_matrix)
       sleep(5)
@@ -149,14 +188,14 @@ module Sent
           job_id = driver.standardNMF(
             nmf_matrix, # Matrix job
             "Standard", # Algorithm
-            k, # Factor Start
-            k, # Factor End
-            1, # Runs
-            2000, # Iterations
-            40,   # Stop criteria
-            0,    # Not used (nsnmf smoothness)
-            false, # extra info
-            '')    # Suggested name
+            k,          # Factor Start
+            k,          # Factor End
+            1,          # Runs
+            2000,       # Iterations
+            40,         # Stop criteria
+            0,          # Not used (nsnmf smoothness)
+            false,      # extra info
+            '')         # Suggested name
 
           while !driver.done(job_id)
             sleep(5)
@@ -168,12 +207,15 @@ module Sent
           end
 
           results =  driver.results(job_id)
-          fw = File.open(out + ".matrix_w.#{num}",'w')
-          fw.write(driver.result(results[0]).sub(/\t(.*)\t$/,'\1'))
-          fw.close
-          fh = File.open(out + ".matrix_h.#{num}",'w')
-          fh.write(driver.result(results[1]).sub(/\t(.*)\t$/,'\1'))
-          fh.close
+          
+          File.open(out + ".matrix_w.#{num}",'w') do |f| 
+            f.write driver.result(results[0]) #.sub(/\t(.*)\t$/,'\1')
+          end
+
+          File.open(out + ".matrix_h.#{num}",'w') do |f|
+            f.write driver.result(results[1]) #.sub(/\t(.*)\t$/,'\1')
+          end
+
           driver.clean(job_id)
         rescue Sent::ProcessAbortedError
           puts "Process aborted for #{ num }"

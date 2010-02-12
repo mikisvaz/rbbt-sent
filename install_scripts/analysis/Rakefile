@@ -1,121 +1,97 @@
-require 'sent'
+require 'rake_pipeline'
 require 'sent/main'
 require 'rbbt/sources/organism'
 require 'progress-monitor'
 
+include Rake::Pipeline
 
-$list = ENV['list']
-$kstart = ENV['kstart'] || ENV['k']
-$kend = ENV['kend'] || $kstart
 
-rule (/summary\/(.*)/) => lambda {|n| n.sub(/summary/,'NMF') } do |t|
-  nmf = t.name.sub(/summary/,'NMF')
-
-  Sent.analyze(nmf, t.name)
-  FileUtils.touch t.name
-end
-
-rule (/NMF\/(.*)/) do |t|
-  matrix = t.name.sub(/NMF/,'matrices')
-
-  k = $kstart
-  if $kstart < $kend
-    best = 0
-    ccc = Sent.CCC(matrix, $kstart, $kend)
-    ccc.each_with_index{|v,i|
-      if v.to_i > best
-        k = $kstart.to_i + i
-      end
-    }
-  end
-
-  Sent.NMF(matrix, t.name, k.to_i, 10)
-  FileUtils.touch t.name
-end
-
-rule (/matrices\/(.*)/) => lambda {|n| n.sub(/matrices/,'metadocs') } do |t|
-  metadocs = t.name.sub(/matrices/,'metadocs')
-  
-  list = nil
-  list = Open.read($list).collect{|l| l.chomp} if $list
-  
-  Sent.matrix(metadocs, t.name, list)
-end
-
-rule (/metadocs\/(.*)/) => lambda {|n| n.sub(/metadocs/,'associations') } do |t|
-  assocfile = t.name.sub(/metadocs/,'associations')
-
-  Sent.metadocs(assocfile, t.name)
-end
-
-rule(/associations\/(.*)_text/) do |t|
-  org = File.basename(t.name).sub(/_text/,'')
-
-  pmids = Sent.mentions(org)
-
-  File.open(t.name, 'w') do |f|
-    pmids.each do |code, pmid_list|
-      pmid_list.uniq.each do |pmid|
-        f.puts "#{ code }\t#{pmid}"
-      end
-    end
-  end
-end
-
-rule (/associations\/(.*)/) => lambda{|n| n + '_text'} do |t|
-  org = File.basename(t.name)
-
-  fout = File.open(t.name, 'w')
-  fout.write Open.read(t.name + '_text')
-
-  associations = Organism.gene_literature(org)
-  associations.each{|gene, pmids|
-    pmids.each{|pmid|
-      fout.puts "#{ gene }\t#{pmid}"
-    }
-  }
-
-  associations = Organism.gene_literature_go(org)
-  associations.each{|gene, pmids|
-    pmids.each{|pmid|
-      fout.puts "#{ gene }\t#{pmid}"
-    }
-  }
-  fout.close
-
+def org_description(org, associations)
   name = Organism.name(org)
   supported_ids = Organism.supported_ids(org, :examples => true)
-  associations = Open.to_hash(t.name, :flatten => true)
 
-  description =<<-EOT
+  <<-EOT
 Name: #{ name }
 Organism: #{ name }
 Description: #{associations.values.flatten.length} associations for #{associations.keys.length} genes and #{associations.values.flatten.uniq.length} articles
 ID Format: #{supported_ids.collect{|p| "#{ p[0] } (#{ p[1] })"}.join(", ")}
   EOT
-
-  Open.write(t.name + '.description', description)
 end
 
-task 'clean' do
-  FileUtils.rm Dir.glob("associations/*")
+
+desc "Find gene mentions in text"
+step_def :mentions do
+  
+  associations = Sent.mentions(job_name)
+
+  associations.collect {|code, pmids| "%s\t%s" % [code, pmids.uniq.join('|')] } * "\n"
 end
+
+desc "Join gene mention associations, entrez GeneRif associations, and GO associations" 
+step_def :associations do |t|
+  associations = Open.to_hash(StringIO.new(input), :flatten => true)
+
+  associations.merge!(Organism.gene_literature(job_name))
+  associations.merge!(Organism.gene_literature_go(job_name))
+
+  File.open(t.name + '.description', 'w') do |f| f.puts org_description(job_name, associations) end
+
+  associations.collect {|code, pmids| "%s\t%s" % [code, pmids.uniq.join('|')] } * "\n"
+end
+
+desc "Build dictionary"
+step_def :dictionary do |t|
+  associations = Open.to_hash(StringIO.new(input), :flatten => true)
+
+  Progress.monitor("Building dictionary for #{job_name}")
+  term_weights, stems = Sent.dictionary(associations)
+
+  File.open(t.name + '.stems', 'w') do |f| f.puts stems.collect{|stem, words| "%s\t%s" % [stem, words.join("|")] } end
+
+  term_weights.collect {|term, weight| "%s\t%s" % [term, weight] } * "\n"
+end
+
+desc "Build metadocument"
+step_def :metadoc do
+  terms = input.collect{|l| l.split("\t").first}
+  associations = Open.to_hash(StringIO.new(input(:associations)), :flatten => true)
+
+  Progress.monitor("Building metadoc for #{job_name}")
+  Sent.metadoc(associations, terms)
+end
+
+desc "Selecting gene metadocs"
+step_def :matrix, [] do |t|
+  $org          ||= ENV['organism']
+  $genes        ||= STDIN.read.split(/\n/)
+  $metadoc_dir  ||= step_dir(:metadoc)
+
+  metadoc_file = File.join($metadoc_dir, $org)
+
+  Sent.matrix(metadoc_file, $genes)
+end
+
+desc "Performing NMF factorization"
+step_def :NMF do |t|
+  $factors   ||= ENV['factors']
+  Sent.NMF(input, t.name, $factors.to_i)
+end
+
+
+desc "Analyze results"
+step_def :summary do 
+  $factors   ||= ENV['factors']
+  Sent.analyze(input_filename, output_filename, $factors)
+end
+
 
 task 'all' do
-  Organism.all.each{|org|
-    `rake metadocs/#{ org }`
-  }
-end
 
-task 'default' do
-  if $org
-    FileUtils.rm Dir.glob("**/#{$org}.*") if $force
-    Rake::Task["metadocs/#{$org}"].invoke
-  else
-    Rake::Task['clean'].invoke if $force
-    Rake::Task['all'].invoke
+  Progress.monitor("Processing organisms", :announcement => Proc.new{|org| "Organism #{ org }" }, :stack_depth => 0)
+  Organism.all.each do |org|
+    Rake::Task[File.join('metadoc',org)].invoke
   end
+
 end
 
-
-
+task 'default' => 'all'
