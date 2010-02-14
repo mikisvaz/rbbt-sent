@@ -66,7 +66,7 @@ module Sent
     stdin.close
 
     Process.wait pid
-    raise ProcessAbortedError, "Error in R process: #{stderr.read}" if $?.exitstatus != 0
+    raise ProcessAbortedError, "Error in R process: #{stdout.read + stderr.read}" if $?.exitstatus != 0
     result = stdout.read + stderr.read
     stdout.close
     stderr.close
@@ -317,7 +317,7 @@ module Sent
   def self.analyze(prefix, output, clusters = nil, num_words = 15)
 
     FileUtils.rm Dir.glob(output + '*.words') + Dir.glob(output + '*.genes')
-    run_R("SENT.analyze('#{ prefix }', '#{ output }', '#{clusters}', '#{num_words}')")
+    run_R("SENT.analyze('#{ prefix }', '#{ output }', #{clusters || 'NULL'}, #{num_words})")
     words = Dir.glob(output + '*.words').sort.collect{|f| Open.read(f).split(/\n/)}
     genes = Dir.glob(output + '*.genes').sort.collect{|f| Open.read(f).split(/\n/)}
 
@@ -326,7 +326,7 @@ module Sent
       groups << {:words => p[0], :genes => p[1]}
     }
 
-    Open.write(output + '.summary', groups.to_yaml)
+    groups
   end
 
   def self.literature_index(pmids, outfile)
