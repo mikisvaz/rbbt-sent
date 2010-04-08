@@ -11,6 +11,16 @@ the following conditions:
 The above copyright notice and this permission notice shall be
 included in all copies or substantial portions of the Software.
 
+Any academic publication involving the use of this software in any way 
+should include a reference to the following publication:
+
+Vazquez, M. and Carmona-Saez, P. and Nogales-Cadenas, R. and Chagoyen, M. and
+Tirado, F. and Carazo, J.M. and Pascual-Montano, A.: "SENT: semantic features in
+text". Nucleic Acids Research 2009, doi:10.1093/nar/gkp392
+
+Any comercial use of the software must be notified for aproval to the
+holder of the copyright, listed above.
+
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
