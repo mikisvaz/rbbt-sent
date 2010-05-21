@@ -10,6 +10,7 @@ require 'stemmer'
 require 'open4'
 require 'progress-monitor'
 require 'yaml'
+require 'base64'
 
 # Produce Stem lists, used by the Web Service
 class String
@@ -66,7 +67,8 @@ module Sent
     stdin.close
 
     Process.wait pid
-    raise ProcessAbortedError, "Error in R process: #{stdout.read + stderr.read}" if $?.exitstatus != 0
+
+    raise Sent::ProcessAbortedError, "Error in R process: #{stdout.read + stderr.read}" if $?.exitstatus != 0
     result = stdout.read + stderr.read
     stdout.close
     stderr.close
@@ -209,11 +211,11 @@ module Sent
           results =  driver.results(job_id)
           
           File.open(out + ".matrix_w.#{num}",'w') do |f| 
-            f.write driver.result(results[0]) #.sub(/\t(.*)\t$/,'\1')
+            f.write Base64.decode64 driver.result(results[0]) #.sub(/\t(.*)\t$/,'\1')
           end
 
           File.open(out + ".matrix_h.#{num}",'w') do |f|
-            f.write driver.result(results[1]) #.sub(/\t(.*)\t$/,'\1')
+            f.write Base64.decode64 driver.result(results[1]) #.sub(/\t(.*)\t$/,'\1')
           end
 
           driver.clean(job_id)
@@ -270,7 +272,7 @@ module Sent
     if error
       raise Exception, "Error in NMF:\n" + error
     end
-
+    
     run_R("SENT.join.results('#{ out }')")
 
     FileUtils.rm Dir.glob(out + '.matrix_*.*')
