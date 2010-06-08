@@ -197,7 +197,7 @@ module Sent
             40,         # Stop criteria
             0,          # Not used (nsnmf smoothness)
             false,      # extra info
-            '')         # Suggested name
+            nmf_matrix)         # Suggested name
 
           while !driver.done(job_id)
             sleep(5)
@@ -339,7 +339,7 @@ module Sent
     index.field_infos.add_field(:abstract, :index => :yes, :boost => 0.33)
 
     Progress.monitor("Building index for #{pmids.length} articles")
-    pmids.each{|pmid|
+    pmids.uniq.each{|pmid|
       begin
         article = PubMed.get_article(pmid)
         abstract = article.abstract
