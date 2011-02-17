@@ -161,14 +161,14 @@ module Sent
 
     # Upload matrix
     nmf_matrix = driver.upload_matrix(
-       matrix,   # matrix
-       false,    # binary 
-       true,     # column labels 
-       true,     # row labels
-       true,     # transpose
-       "No",     # positive
-       "No",     # normalization 
-       "matrix") # Suggested name
+      Base64.encode64(matrix),   # matrix
+      false,    # binary 
+      false,     # column labels 
+      false,     # row labels
+      true,     # transpose
+      "No",     # positive
+      "No",     # normalization 
+      "matrix") # Suggested name
 
     # Send several executions in parallel
     while !driver.done(nmf_matrix)
@@ -218,7 +218,6 @@ module Sent
             f.write Base64.decode64 driver.result(results[1]) #.sub(/\t(.*)\t$/,'\1')
           end
 
-          driver.clean(job_id)
         rescue Sent::ProcessAbortedError
           puts "Process aborted for #{ num }"
           driver.abort(job_id)
@@ -263,7 +262,6 @@ module Sent
     threads.each { |aThread|  aThread.join }
 
     Signal.trap("INT", old_int)
-    driver.clean(nmf_matrix)
 
     if aborted
       raise Sent::ProcessAbortedError, "Process Aborted"
