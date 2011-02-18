@@ -75,6 +75,7 @@ desc "Performing NMF factorization"
 step_def :NMF do |t|
   $factors   ||= ENV['factors']
   Sent.NMF(input, t.name, $factors.to_i)
+  ""
 end
 
 

@@ -147,6 +147,7 @@ module Sent
     File.open(metadoc_file) do |f|
       matrix += f.gets
       f.read.each_line do |line|
+        next if line.strip.empty?
         gene = line.match(/^(.*?)\t/)[1]
         matrix += line if genes.include? gene
       end
@@ -164,7 +165,7 @@ module Sent
       Base64.encode64(matrix),   # matrix
       false,    # binary 
       false,     # column labels 
-      false,     # row labels
+      true,     # row labels
       true,     # transpose
       "No",     # positive
       "No",     # normalization 
